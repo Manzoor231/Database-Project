@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 import mongoose from "mongoose";
-const MONGO_URL = process.env.MONG_URL //"mongodb://127.0.0.1:27017/Fazli";
+const MONGO_URL = process.env.MONGO_URL //"mongodb://127.0.0.1:27017/Fazli";
 
 if (!MONGO_URL) {
   throw new Error("Please Define the MONGO_URL inside lib/mongodb.js");
