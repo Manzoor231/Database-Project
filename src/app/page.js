@@ -96,7 +96,7 @@ export default function DashboardPage() {
                     <th className="p-2 border">Amount</th>
                     <th className="p-2 border">Category</th>
                     <th className="p-2 border">Date</th>
-                    <th className="p-2 border">Status</th>
+                    <th className="p-2 border">Remaining Status</th>
                   </tr>
                 </thead>
                 <tbody>

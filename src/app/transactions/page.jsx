@@ -150,7 +150,7 @@
                 <table className="min-w-[900px] w-full text-sm text-left border-collapse">
                   <thead className="bg-gray-100 sticky top-0 z-10">
                     <tr>
-                      {["ID","Date","Name","Category","Amount","Remaining","Status","Type","Actions"].map(h => <th key={h} className="p-2 border">{h}</th>)}
+                      {["ID","Date","Name","Category","Amount","Remaining","Remaining Status","Type","Actions"].map(h => <th key={h} className="p-2 border">{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
