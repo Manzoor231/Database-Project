@@ -2,11 +2,35 @@ import { NextResponse } from "next/server";
 
 import connectToDatabase from "@/lib/mongodb";
 import Transactions from "@/app/models/Transactions";
+import Products from "@/app/models/Products";
 
 export async function GET() {
   await connectToDatabase();
+
+  // Fetch transactions and attach product info when available so client can render paid state reliably
   const list = await Transactions.find().sort({ date: -1 });
-  return NextResponse.json(list);
+
+  const enhanced = await Promise.all((list || []).map(async (t) => {
+    const obj = t.toObject ? t.toObject() : { ...t };
+    if (obj.relatedProductId) {
+      try {
+        const prod = await Products.findById(obj.relatedProductId).lean();
+        if (prod) {
+          // prefer product's payment/remaining values when available
+          obj._product = prod;
+          obj.productPaymentStatus = prod.paymentStatus;
+          obj.productRemaining = (prod.paymentStatus === 'paid') ? 0 : (prod.remainingAmount ?? (Number(prod.amount || 0) - Number(prod.advanceAmount || 0)));
+          obj.paymentStatus = prod.paymentStatus || obj.paymentStatus;
+          obj.remainingAmount = Number(obj.productRemaining ?? obj.remainingAmount ?? 0);
+        }
+      } catch (err) {
+        console.error('Failed to load related product for transaction', obj.relatedProductId, err);
+      }
+    }
+    return obj;
+  }));
+
+  return NextResponse.json(enhanced);
 }
 
 export async function POST(req) {

@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { DollarSign, TrendingUp, TrendingDown, Activity, Package } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, Activity, Package, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function DashboardPage() {
-  const [transactions, setTransactions] = useState([]);
+  const [records, setRecords] = useState([]);
+  const [openSidebar, setOpenSidebar] = useState(false);
   const [summary, setSummary] = useState({
     totalIncome: 0,
     totalExpense: 0,
@@ -22,44 +23,63 @@ export default function DashboardPage() {
         const data = await res.json();
         if (!Array.isArray(data)) return;
 
-        setTransactions(data);
-
+        setRecords(data);
+        
+        // Calculate summary totals
         let totalIncome = 0;
         let totalExpense = 0;
         const productsSet = new Set();
-
-        for (const t of data) {
-          // Use effectiveAmount for totals
-          if (t.type === "in") totalIncome += t.effectiveAmount;
-          if (t.type === "out") totalExpense += t.effectiveAmount;
-
-          if (t.buy && t.buy !== "None") productsSet.add(t.buy);
+        
+        for (const r of data) {
+          if (r.type === "in") totalIncome += r.effectiveAmount;
+          if (r.type === "out") totalExpense += r.effectiveAmount;
+          
+          if (r.buy && r.buy !== "None") productsSet.add(r.buy);
         }
-
+        
         setSummary({
           totalIncome,
           totalExpense,
           netProfit: totalIncome - totalExpense,
-          totalProducts: productsSet.size,
+          totalProducts: productsSet.size
         });
       } catch (err) {
-        console.error("Error loading dashboard:", err);
+        console.error("Dashboard load error:", err);
       }
     };
-
+    
     loadData();
   }, []);
 
+  
+  
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
+    <div className="flex gap-10 min-h-screen bg-gray-50">
+      {/* Desktop Sidebar */}
+      <aside className="hidden lg:flex lg:flex-col w-64 shrink-0 border-r border-gray-200">
+        <Sidebar />
+      </aside>s
+
+      {/* Mobile Sidebar drawer */}
+      <div className={`fixed inset-0 z-40 lg:hidden transition-opacity ${openSidebar ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}>
+        <div className="absolute inset-0 bg-black bg-opacity-30" onClick={()=>setOpenSidebar(false)} />
+        <div className={`absolute top-0 left-0 h-full w-64 bg-white shadow transform transition-transform ${openSidebar ? "translate-x-0" : "-translate-x-full"}`}>
+          <Sidebar />
+        </div>
+      </div>
 
       <main className="flex-1 p-4 sm:p-6 space-y-8">
+        {/* Header */}
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2 text-gray-800">
-              <Activity className="w-6 h-6 sm:w-7 sm:h-7 text-green-600" /> Dashboard Overview
-            </h1>
+            <div className="flex items-center gap-3">
+              <button className="lg:hidden p-1" onClick={()=>setOpenSidebar(true)}>
+                <Menu className="w-6 h-6 text-gray-700" />
+              </button>
+              <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2 text-gray-800">
+                <Activity className="w-6 h-6 sm:w-7 sm:h-7 text-green-600" /> Dashboard Overview
+              </h1>
+            </div>
             <p className="text-gray-500 text-sm sm:text-base">
               Financial summary and recent transactions (MongoDB synced)
             </p>
@@ -72,6 +92,7 @@ export default function DashboardPage() {
           </Button>
         </header>
 
+        {/* Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <SummaryCard title="Total Income" value={summary.totalIncome} icon={<DollarSign className="text-green-600"/>} color="text-green-700"/>
           <SummaryCard title="Total Expense" value={summary.totalExpense} icon={<TrendingDown className="text-red-600"/>} color="text-red-600"/>
@@ -79,14 +100,16 @@ export default function DashboardPage() {
           <SummaryCard title="Total Products" value={summary.totalProducts} icon={<Package className="text-purple-600"/>} color="text-purple-700" isProduct/>
         </div>
 
+        {/* Transactions Table */}
         <Card className="border border-gray-200 shadow-sm overflow-x-auto">
           <CardHeader>
-            <CardTitle>Recent Transactions</CardTitle>
+            <CardTitle>Recent Transactions & Products</CardTitle>
           </CardHeader>
           <CardContent>
-            {transactions.length === 0 ? (
-              <p className="text-gray-500 text-sm">No transactions found.</p>
+                {records.length === 0 ? (
+              <p className="text-gray-500 text-sm">No records found.</p>
             ) : (
+              <>
               <table className="min-w-full text-sm text-left border border-gray-200 rounded-md">
                 <thead className="bg-gray-100 text-gray-700">
                   <tr>
@@ -100,19 +123,20 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.slice(-10).reverse().map((t, i) => (
-                    <tr key={t._id || i} className="hover:bg-gray-50 transition-colors border-b">
+                  {records.slice(0, 20).map((r, i) => (
+                    <tr key={r._id || i} className="hover:bg-gray-50 transition-colors border-b">
                       <td className="p-2 border">{i + 1}</td>
-                      <td className="p-2 border">{t.name || "N/A"}</td>
-                      <td className={`p-2 border font-semibold ${t.type==="in"?"text-green-600":"text-red-600"}`}>{t.type?.toUpperCase()}</td>
-                      <td className="p-2 border">{t.effectiveAmount?.toLocaleString() || "0"} AFN</td>
-                      <td className="p-2 border">{t.buy || "Uncategorized"}</td>
-                      <td className="p-2 border">{t.date?.slice(0,10) || "N/A"}</td>
-                      <td className={`p-2 border font-semibold ${t.status==="done"?"text-green-600":"text-red-600"}`}>{t.status==="done"?"Paid":"Unpaid"}</td>
+                      <td className="p-2 border">{r.name || "N/A"}</td>
+                      <td className={`p-2 border font-semibold ${r.type==="in"?"text-green-600":"text-red-600"}`}>{r.type?.toUpperCase()}</td>
+                      <td className="p-2 border">{r.effectiveAmount?.toLocaleString() || "0"} AFN</td>
+                      <td className="p-2 border">{r.buy || "Uncategorized"}</td>
+                      <td className="p-2 border">{r.date?.slice(0,10) || "N/A"}</td>
+                          <td className={`p-2 border font-semibold ${r.status==="done"?"text-green-600":"text-red-600"}`}>{r.status==="done"?"Paid":"Unpaid"}</td>
                     </tr>
                   ))}
                 </tbody>
-              </table>
+                  </table>
+                  </>
             )}
           </CardContent>
         </Card>

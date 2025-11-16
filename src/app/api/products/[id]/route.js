@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import connectToDatabase from "@/lib/mongodb";
 import Products from "@/app/models/Products";
+import Transactions from "@/app/models/Transactions";
 import mongoose from "mongoose";
 
 // ✅ Helper: safely unwrap params even if it's a promise
@@ -40,6 +41,27 @@ export async function PUT(request, context) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
+    // Sync a linked transaction (update or create)
+    try {
+      await Transactions.findOneAndUpdate(
+        { relatedProductId: String(id) },
+        {
+          name: updated.name,
+          buy: Array.isArray(updated.buy) ? updated.buy : (updated.buy ? [updated.buy] : []),
+          amount: Number(updated.amount || 0),
+          advanceAmount: Number(updated.advanceAmount || 0),
+          remainingAmount: Number(updated.remainingAmount || 0),
+          relatedProductId: String(id),
+          type: "in",
+          date: updated.date instanceof Date ? updated.date.toISOString() : updated.date,
+          status: (updated.paymentStatus === "paid") ? "done" : "pending",
+        },
+        { upsert: true, new: true }
+      );
+    } catch (txErr) {
+      console.error("Failed to sync transaction for product PUT:", txErr);
+    }
+
     return NextResponse.json(updated);
   } catch (error) {
     console.error("PUT /api/products/[id] error:", error);
@@ -60,6 +82,12 @@ export async function DELETE(request, context) {
     }
 
     await Products.findByIdAndDelete(id);
+    try {
+      await Transactions.deleteMany({ relatedProductId: String(id) });
+    } catch (txErr) {
+      console.error("Failed to delete linked transactions:", txErr);
+    }
+
     return NextResponse.json({ message: "Product deleted successfully" });
   } catch (error) {
     console.error("DELETE /api/products/[id] error:", error);

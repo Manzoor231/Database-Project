@@ -23,7 +23,10 @@ export default function TransactionsPage() {
   });
   const [openSidebar, setOpenSidebar] = useState(false);
 
-  const deriveOwner = (buy = "None") => NAZIR_CATEGORIES.includes(buy) ? "Nazir" : "Shabir";
+  const deriveOwner = (buy = "None") => {
+    const arr = Array.isArray(buy) ? buy : [buy];
+    return arr.some(c => NAZIR_CATEGORIES.includes(c)) ? "Nazir" : "Shabir";
+  };
 
   const loadTransactions = async () => {
     try {
@@ -32,8 +35,14 @@ export default function TransactionsPage() {
       const data = await res.json();
       const normalized = (data || []).map(t => {
         const amount = Number(t.amount || 0);
-        const remaining = Math.max(0, Math.min(Number(t.remainingAmount ?? amount), amount));
-        return { ...t, amount, remainingAmount: remaining };
+        const advance = Number(t.advanceAmount || 0);
+        // Prefer explicit remainingAmount, otherwise derive from amount-advance
+        const rawRemaining = (t.remainingAmount !== undefined && t.remainingAmount !== null)
+          ? Number(t.remainingAmount)
+          : Math.max(0, amount - advance);
+        const remaining = Math.max(0, Math.min(rawRemaining, amount));
+        const isPaid = (t.paymentStatus === "paid") || (t.status === "done") || remaining === 0;
+        return { ...t, amount, remainingAmount: remaining, isPaid };
       });
       setTransactions(normalized);
     } catch (err) {
@@ -43,6 +52,8 @@ export default function TransactionsPage() {
 
   useEffect(() => { loadTransactions(); }, []);
 
+  
+
   const filtered = useMemo(() => {
     const now = new Date();
     return transactions.filter(t => {
@@ -50,7 +61,7 @@ export default function TransactionsPage() {
       const { month, type, category, person, minAmount } = filters;
       const matchesSearch = t.name?.toLowerCase().includes(search.toLowerCase());
       const matchesType = type === "all" || t.type === type;
-      const matchesCategory = category === "all" || t.buy === category;
+      const matchesCategory = category === "all" || (Array.isArray(t.buy) ? t.buy.includes(category) : t.buy === category);
       const matchesPerson = person === "all" || (t.owner || deriveOwner(t.buy)) === person;
       const matchesAmount = !minAmount || t.amount >= parseFloat(minAmount);
       const matchesMonth =
@@ -149,7 +160,7 @@ export default function TransactionsPage() {
             <CardTitle>Transaction Records ({filtered.length})</CardTitle>
           </CardHeader>
           <CardContent className="p-3 overflow-x-auto" >
-            <table className="min-w-[900px] w-full text-sm text-left border-collapse">
+            <table className="min-w-[900px] w-full text-sm text-left border-collapse hidden sm:table">
               <thead className="bg-gray-100 sticky top-0 z-10">
                 <tr>
                   {["ID","Date","Name","Category","Amount","Remaining","Remaining Status","Type","Actions"].map(h => <th key={h} className="p-2 border">{h}</th>)}
@@ -161,11 +172,11 @@ export default function TransactionsPage() {
                   <td className="p-2 border">{t._id}</td>
                   <td className="p-2 border">{t.date?.slice(0,10)}</td>
                   <td className="p-2 border">{t.name}</td>
-                  <td className="p-2 border">{t.buy}</td>
-                  <td className={`p-2 border text-right font-semibold ${t.type==="in"?"text-green-600":"text-red-600"}`}>{t.type==="in"?"+":"-"}{t.amount.toFixed(2)} AFN</td>
-                  <td className="p-2 border text-right">{t.remainingAmount>0?t.remainingAmount.toFixed(2)+" AFN":"Paid"}</td>
-                  <td className="p-2 border text-center">{t.remainingAmount>0?<span className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-50 text-yellow-700 text-xs rounded-full">Unpaid</span>:<span className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 text-xs rounded-full">Paid</span>}</td>
-                  <td className={`p-2 border text-center rounded-md ${t.type==="in"?"bg-green-50 text-green-600":"bg-red-50 text-red-600"}`}>{t.type.toUpperCase()}</td>
+                  <td className="p-2 border">{Array.isArray(t.buy) ? t.buy.join(", ") : t.buy}</td>
+                  <td className={`p-2 border text-right font-semibold ${t.type==="in"?"text-green-600":"text-red-600"}`}>{t.type==="in"?"+":"-"}{Number(t.amount || 0).toFixed(2)} AFN</td>
+                  <td className="p-2 border text-right">{t.remainingAmount>0?Number(t.remainingAmount).toFixed(2)+" AFN":"Paid"}</td>
+                  <td className="p-2 border text-center">{t.isPaid ? <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 text-xs rounded-full">Paid</span> : <span className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-50 text-yellow-700 text-xs rounded-full">Unpaid</span>}</td>
+                  <td className={`p-2 border text-center rounded-md ${t.type==="in"?"bg-green-50 text-green-600":"bg-red-50 text-red-600"}`}>{(t.type||"").toUpperCase()}</td>
                   <td className="p-2 border flex justify-center gap-2">
                     <button className="text-blue-600 hover:text-blue-800"><Edit2 className="w-4 h-4"/></button>
                     <button className="text-red-600 hover:text-red-800"><Trash2 className="w-4 h-4"/></button>
@@ -173,6 +184,33 @@ export default function TransactionsPage() {
                 </tr>))}
               </tbody>
             </table>
+
+            {/* Mobile list view */}
+            <div className="sm:hidden space-y-3">
+              {filtered.length === 0 && <div className="p-4 text-center text-gray-500">No transactions found</div>}
+              {filtered.map((t) => {
+                return (
+                  <div key={t._id} className="p-3 bg-white shadow-sm rounded-md">
+                    <div className="flex justify-between items-start gap-2">
+                      <div>
+                        <div className="text-sm font-semibold">{t.name}</div>
+                        <div className="text-xs text-gray-500">{new Date(t.date).toLocaleDateString()} • {Array.isArray(t.buy)?t.buy.join(", "):t.buy}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className={`font-semibold ${t.type==="in"?"text-green-600":"text-red-600"}`}>{t.type==="in"?"+":"-"}{Number(t.amount||0).toFixed(2)} AFN</div>
+                        <div className="text-xs mt-1">
+                              <span className={`px-2 py-1 rounded-full text-xs ${t.isPaid?"bg-green-50 text-green-700":"bg-yellow-50 text-yellow-700"}`}>{t.isPaid?"Paid":"Unpaid"}</span>
+                            <div className="mt-2 flex justify-end gap-2">
+                              <button className="text-blue-600 hover:text-blue-800"><Edit2 className="w-4 h-4"/></button>
+                              <button className="text-red-600 hover:text-red-800"><Trash2 className="w-4 h-4"/></button>
+                            </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </CardContent>
         </Card>
 

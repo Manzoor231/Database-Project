@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import connectToDatabase from "@/lib/mongodb";
 import Products from "@/app/models/Products";
+import Transactions from "@/app/models/Transactions";
 export async function GET() {
   try {
     await connectToDatabase();
@@ -37,6 +38,22 @@ export async function POST(req) {
     date: body.date || new Date()
   });
 
+  try {
+    // Also create a corresponding transaction so products show in transactions/dashboard
+    await Transactions.create({
+      name: newProduct.name,
+      buy: Array.isArray(newProduct.buy) ? (newProduct.buy[0] || "Uncategorized") : newProduct.buy || "Uncategorized",
+      amount: Number(newProduct.amount) || 0,
+      advanceAmount: Number(newProduct.advanceAmount) || 0,
+      remainingAmount: Number(newProduct.remainingAmount) || 0,
+      relatedProductId: String(newProduct._id),
+      type: "in",
+      date: newProduct.date instanceof Date ? newProduct.date.toISOString() : newProduct.date,
+    });
+  } catch (txErr) {
+    console.error("Failed to create linked transaction:", txErr);
+  }
+
   return NextResponse.json(newProduct);
 }
 
@@ -70,6 +87,27 @@ export async function PUT(req) {
   }
 
   const updated = await Products.findByIdAndUpdate(id, update, { new: true });
+  // Keep linked transaction in sync (update or create if missing)
+  try {
+    await Transactions.findOneAndUpdate(
+      { relatedProductId: String(id) },
+      {
+        name: updated?.name,
+        buy: Array.isArray(updated?.buy) ? (updated.buy[0] || "Uncategorized") : updated?.buy || "Uncategorized",
+        amount: Number(updated?.amount) || 0,
+        advanceAmount: Number(updated?.advanceAmount) || 0,
+        remainingAmount: Number(updated?.remainingAmount) || 0,
+        relatedProductId: String(id),
+        type: "in",
+        date: updated?.date instanceof Date ? updated.date.toISOString() : updated?.date,
+        status: (updated?.paymentStatus === "paid") ? "done" : "pending",
+      },
+      { upsert: true, new: true }
+    );
+  } catch (txErr) {
+    console.error("Failed to sync linked transaction on product update:", txErr);
+  }
+
   return NextResponse.json(updated);
 }
 
@@ -79,6 +117,11 @@ export async function DELETE(req) {
   const { id } = await req.json();
 
   await Products.findByIdAndDelete(id);
+  try {
+    await Transactions.deleteMany({ relatedProductId: String(id) });
+  } catch (txErr) {
+    console.error("Failed to delete linked transactions:", txErr);
+  }
 
   return NextResponse.json({ success: true });
 }

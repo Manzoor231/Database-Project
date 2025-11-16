@@ -148,13 +148,30 @@ export default function ProductsPage() {
     setActionLoading(true);
     try {
       const product = products.find((p) => p._id === id);
-      if (!product || Number(product.remainingAmount) === 0) return;
+      if (!product) throw new Error("Product not found");
 
-      await fetch(`/api/products/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ remainingAmount: 0, paymentStatus: "paid" }),
-      });
+      const currentRemaining = Number(product.remainingAmount || 0);
+
+      if (currentRemaining > 0) {
+        // mark as paid
+        await fetch(`/api/products/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ remainingAmount: 0, paymentStatus: "paid" }),
+        });
+      } else {
+        // undo payment: restore remaining = amount - advanceAmount
+        const amount = Number(product.amount || 0);
+        const advance = Number(product.advanceAmount || 0);
+        const undoRemaining = Math.max(0, amount - advance);
+        const paymentStatus = undoRemaining === 0 ? "paid" : (advance > 0 ? "partial" : "unpaid");
+
+        await fetch(`/api/products/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ remainingAmount: undoRemaining, paymentStatus }),
+        });
+      }
 
       await loadProducts();
     } catch (err) {
@@ -256,9 +273,9 @@ export default function ProductsPage() {
                         size="sm"
                         variant="outline"
                         onClick={() => handlePaymentDone(p._id)}
-                        disabled={actionLoading || p.remainingAmount === 0}
+                        disabled={actionLoading}
                       >
-                        {p.remainingAmount > 0 ? "Pay Remaining" : "Paid"}
+                        {p.remainingAmount > 0 ? "Pay" : "Undo"}
                       </Button>
                       <button
                         className="text-blue-600 hover:text-blue-800"
