@@ -1,26 +1,16 @@
-// /models/Product.js
 import mongoose from "mongoose";
 
-const ProductSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: true },
-    phone: { type: String, required: true },
-    buy: { type: String, required: true },
+const ProductsSchema = new mongoose.Schema({
+  name: { type: String },          // customer name
+  phone: { type: String },
+  buy: { type: [String], default: [] }, // array of categories
+  ownerName: { type: String },
+  amount: { type: Number, required: true },
+  advanceAmount: { type: Number, default: 0 },
+  remainingAmount: { type: Number, default: 0 },
+  date: { type: Date, default: Date.now },
+  workStatus: { type: String, default: "pending" },
+  paymentStatus: { type: String, default: "unpaid" },
+});
 
-    amount: { type: Number, required: true },          // Total
-    advanceAmount: { type: Number, default: 0 },        // Advance
-    remainingAmount: { type: Number, default: 0 },      // Auto calculated
-
-    date: { type: String, required: true },
-
-    status: {
-      type: String,
-      enum: ["pending", "done"],
-      default: "pending",
-    },
-  },
-  { timestamps: true }
-);
-
-export default mongoose.models.Product ||
-  mongoose.model("Product", ProductSchema);
+export default mongoose.models.Products || mongoose.model("Products", ProductsSchema);

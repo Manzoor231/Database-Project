@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import connectToDatabase from "@/lib/mongodb";
-import Product from "@/app/models/Products";
+import Products from "@/app/models/Products";
 import mongoose from "mongoose";
 
 // ✅ Helper: safely unwrap params even if it's a promise
@@ -35,7 +35,7 @@ export async function PUT(request, context) {
       return NextResponse.json({ error: "Empty body" }, { status: 400 });
     }
 
-    const updated = await Product.findByIdAndUpdate(id, body, { new: true });
+    const updated = await Products.findByIdAndUpdate(id, body, { new: true });
     if (!updated) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
@@ -59,7 +59,7 @@ export async function DELETE(request, context) {
       return NextResponse.json({ error: "Invalid product ID" }, { status: 400 });
     }
 
-    await Product.findByIdAndDelete(id);
+    await Products.findByIdAndDelete(id);
     return NextResponse.json({ message: "Product deleted successfully" });
   } catch (error) {
     console.error("DELETE /api/products/[id] error:", error);

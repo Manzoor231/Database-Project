@@ -14,6 +14,7 @@ export default function Sidebar() {
     { name: "Transactions", icon: <FileText className="w-4 h-4" />, href: "/transactions" },
     { name: "Products", icon: <Users className="w-4 h-4" />, href: "/products" },
     { name: "Remaining", icon: <Clock className="w-4 h-4" />, href: "/remaining" },
+    { name: "Accounting", icon: <Clock className="w-4 h-4" />, href: "/accounting" },
     { name: "Reports", icon: <DollarSign className="w-4 h-4" />, href: "/reports" },
     { name: "Settings", icon: <Settings className="w-4 h-4" />, href: "/settings" },
   ];
