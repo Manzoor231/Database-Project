@@ -22,12 +22,13 @@ export default function ProductsPage() {
     name: "",
     phone: "",
     buy: [],
-    amount: "",
-    advanceAmount: "",
+    amount: 0,
+    advanceAmount: 0,
     remainingAmount: 0,
     date: "",
     workStatus: "pending",
     paymentStatus: "unpaid",
+    partialPayments: [],
   };
 
   const [form, setForm] = useState(emptyForm);
@@ -36,14 +37,21 @@ export default function ProductsPage() {
   const assignOwner = (categoriesArray) =>
     categoriesArray.some((cat) => NAZIR_CATEGORIES.includes(cat)) ? "Nazir" : "Shabir";
 
-  // Auto-calculate remaining amount
+  // Recalculate remainingAmount whenever amounts or partial payments change
   useEffect(() => {
-    const total = Number(form.amount) || 0;
-    const advance = Number(form.advanceAmount) || 0;
-    setForm((f) => ({ ...f, remainingAmount: Math.max(total - advance, 0) }));
-  }, [form.amount, form.advanceAmount]);
+    const total = Number(form.amount || 0);
+    const advance = Number(form.advanceAmount || 0);
+    const partialPaid = (form.partialPayments || []).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    setForm(f => ({ ...f, remainingAmount: Math.max(total - advance - partialPaid, 0) }));
+  }, [form.amount, form.advanceAmount, form.partialPayments]);
 
-  // Load products
+  // Recalculate total amount from buy array
+  useEffect(() => {
+    const totalAmount = form.buy.reduce((sum, b) => sum + (b.qty * (b.unitPrice || 0)), 0);
+    setForm(f => ({ ...f, amount: totalAmount }));
+  }, [form.buy]);
+
+  // Load products from API
   const loadProducts = async () => {
     try {
       const res = await fetch("/api/products");
@@ -56,7 +64,7 @@ export default function ProductsPage() {
 
   useEffect(() => { loadProducts(); }, []);
 
-  // Calculate total completed balance (only paid)
+  // Update total balance
   useEffect(() => {
     const total = products.reduce((sum, p) => {
       const paidAmount = Number(p.amount || 0) - Number(p.remainingAmount || 0);
@@ -70,24 +78,34 @@ export default function ProductsPage() {
       alert("Please fill all required fields.");
       return;
     }
+
     setActionLoading(true);
     try {
       const payload = {
         ...form,
-        buy: [...form.buy],
+        buy: Array.isArray(form.buy) ? form.buy.map(item => ({
+          category: item.category,
+          qty: Number(item.qty),
+          unitPrice: Number(item.unitPrice || 0)
+        })) : [],
         amount: Number(form.amount),
         advanceAmount: Number(form.advanceAmount),
         remainingAmount: Number(form.remainingAmount),
-        ownerName: assignOwner(form.buy),
+        ownerName: assignOwner(form.buy.map(b => b.category)),
       };
+
+      if (!editProduct && payload._id) delete payload._id;
 
       const method = editProduct ? "PUT" : "POST";
       const url = editProduct ? `/api/products/${editProduct._id}` : "/api/products";
-      await fetch(url, {
+
+      const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+
+      if (!res.ok) throw new Error("API request failed");
 
       await loadProducts();
       setOpenForm(false);
@@ -105,11 +123,7 @@ export default function ProductsPage() {
     if (!deleteId) return;
     setActionLoading(true);
     try {
-      await fetch("/api/products", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: deleteId }),
-      });
+      await fetch(`/api/products/${deleteId}`, { method: "DELETE" });
       await loadProducts();
       setOpenDelete(false);
     } catch (err) {
@@ -120,13 +134,11 @@ export default function ProductsPage() {
     }
   };
 
-  // Toggle work status (does NOT affect balance)
   const handleWorkStatusChange = async (id) => {
     setActionLoading(true);
     try {
       const product = products.find((p) => p._id === id);
       if (!product) throw new Error("Product not found");
-
       const newStatus = product.workStatus === "pending" ? "done" : "pending";
 
       await fetch(`/api/products/${id}`, {
@@ -143,35 +155,28 @@ export default function ProductsPage() {
     }
   };
 
-  // Pay remaining (adds to total completed)
-  const handlePaymentDone = async (id) => {
+  const handlePaymentDone = async (id, payment = null) => {
     setActionLoading(true);
     try {
       const product = products.find((p) => p._id === id);
       if (!product) throw new Error("Product not found");
 
-      const currentRemaining = Number(product.remainingAmount || 0);
+      let partialPayments = Array.isArray(product.partialPayments) ? [...product.partialPayments] : [];
+      if (payment) partialPayments.push(payment);
 
-      if (currentRemaining > 0) {
-        // mark as paid
-        await fetch(`/api/products/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ remainingAmount: 0, paymentStatus: "paid" }),
-        });
-      } else {
-        // undo payment: restore remaining = amount - advanceAmount
-        const amount = Number(product.amount || 0);
-        const advance = Number(product.advanceAmount || 0);
-        const undoRemaining = Math.max(0, amount - advance);
-        const paymentStatus = undoRemaining === 0 ? "paid" : (advance > 0 ? "partial" : "unpaid");
+      const totalPartial = partialPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+      const remaining = Math.max(Number(product.amount || 0) - Number(product.advanceAmount || 0) - totalPartial, 0);
+      const paymentStatus = remaining === 0
+        ? "paid"
+        : totalPartial + Number(product.advanceAmount || 0) > 0
+          ? "partial"
+          : "unpaid";
 
-        await fetch(`/api/products/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ remainingAmount: undoRemaining, paymentStatus }),
-        });
-      }
+      await fetch(`/api/products/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partialPayments, remainingAmount: remaining, paymentStatus }),
+      });
 
       await loadProducts();
     } catch (err) {
@@ -188,7 +193,7 @@ export default function ProductsPage() {
 
   return (
     <div className="flex flex-col lg:flex-row min-h-screen bg-gray-100">
-      <Sidebar className="w-full lg:w-64 flex-shrink-0" />
+      <Sidebar className="w-full lg:w-64 shrink-0" />
       <main className="flex-1 p-4 lg:p-6 space-y-6 overflow-x-hidden">
         {/* Header */}
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -240,13 +245,14 @@ export default function ProductsPage() {
                   <th className="p-2 text-right">Advance</th>
                   <th className="p-2 text-center">Work Status</th>
                   <th className="p-2 text-center">Payment Status</th>
+                  <th className="p-2 text-center">Partial Payments</th>
                   <th className="p-2 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan="10" className="p-4 text-center text-gray-500">No products found.</td>
+                    <td colSpan="11" className="p-4 text-center text-gray-500">No products found.</td>
                   </tr>
                 )}
                 {filtered.map((p) => (
@@ -254,39 +260,58 @@ export default function ProductsPage() {
                     <td className="p-2">{new Date(p.date).toLocaleDateString()}</td>
                     <td className="p-2">{p.name}</td>
                     <td className="p-2">{p.phone}</td>
-                    <td className="p-2">{Array.isArray(p.buy) ? p.buy.join(", ") : p.buy}</td>
+                    <td className="p-2">
+                      {Array.isArray(p.buy)
+                        ? p.buy.map(b => `${b.category} (${b.qty} × ${Number(b.unitPrice || 0).toFixed(2)} = ${(b.qty * (b.unitPrice || 0)).toFixed(2)})`).join(", ")
+                        : ""}
+                    </td>
                     <td className="p-2 text-right">{Number(p.amount).toFixed(2)}</td>
                     <td className="p-2 text-right">{Number(p.remainingAmount).toFixed(2)}</td>
                     <td className="p-2 text-right">{Number(p.advanceAmount).toFixed(2)}</td>
                     <td className="p-2 text-center capitalize">{p.workStatus}</td>
                     <td className="p-2 text-center capitalize">{p.paymentStatus}</td>
+                    <td className="p-2 text-center">
+                      {Array.isArray(p.partialPayments) && p.partialPayments.length > 0
+                        ? p.partialPayments.map((pp, idx) => (
+                          <div key={idx}>
+                            {Number(pp.amount).toFixed(2)} AFN - {new Date(pp.date).toLocaleDateString()}
+                          </div>
+                        ))
+                        : "-"}
+                    </td>
                     <td className="p-2 text-center flex flex-wrap justify-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleWorkStatusChange(p._id)}
-                        disabled={actionLoading}
-                      >
+                      <Button size="sm" variant="outline" onClick={() => handleWorkStatusChange(p._id)} disabled={actionLoading}>
                         {p.workStatus === "pending" ? "Mark Work Done" : "Undo Work"}
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handlePaymentDone(p._id)}
-                        disabled={actionLoading}
-                      >
-                        {p.remainingAmount > 0 ? "Pay" : "Undo"}
+
+                      <Button size="sm" variant="outline" onClick={() => {
+                        const amount = Number(prompt("Enter partial payment amount:"));
+                        if (amount > 0 && amount < p.remainingAmount) {
+                          handlePaymentDone(p._id, { amount, date: new Date() });
+                        } else if (amount >= p.remainingAmount) {
+                          alert(`Amount must be less than remaining: ${p.remainingAmount}`);
+                        }
+                      }} disabled={actionLoading || p.remainingAmount === 0}>
+                        Partial Pay
                       </Button>
-                      <button
-                        className="text-blue-600 hover:text-blue-800"
-                        onClick={() => { setEditProduct(p); setForm({ ...p, buy: [...p.buy] }); setOpenForm(true); }}
-                      >
+
+                      <Button size="sm" variant="outline" onClick={() => {
+                        if (p.remainingAmount > 0) {
+                          handlePaymentDone(p._id, { amount: Number(p.remainingAmount), date: new Date() });
+                        }
+                      }} disabled={actionLoading || p.remainingAmount === 0}>
+                        Pay Remaining
+                      </Button>
+
+                      <button className="text-blue-600 hover:text-blue-800" onClick={() => {
+                        setEditProduct(p);
+                        setForm({ ...p, buy: Array.isArray(p.buy) ? [...p.buy] : [], partialPayments: Array.isArray(p.partialPayments) ? [...p.partialPayments] : [] });
+                        setOpenForm(true);
+                      }}>
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      <button
-                        className="text-red-600 hover:text-red-800"
-                        onClick={() => { setDeleteId(p._id); setOpenDelete(true); }}
-                      >
+
+                      <button className="text-red-600 hover:text-red-800" onClick={() => { setDeleteId(p._id); setOpenDelete(true); }}>
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </td>
@@ -304,94 +329,95 @@ export default function ProductsPage() {
 
       {/* Add/Edit Dialog */}
       <Dialog open={openForm} onOpenChange={setOpenForm}>
-        <DialogContent>
+        <DialogContent className="flex flex-col max-h-[90vh] w-full sm:w-[500px]">
           <DialogHeader>
             <DialogTitle>{editProduct ? "Edit Product" : "Add New Product"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 mt-2">
-            <Input
-              placeholder="Customer Name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
-            <Input
-              type="text"
-              placeholder="Phone Number"
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            />
-            <Input
-              type="number"
-              placeholder="Total Amount"
-              value={form.amount}
-              onChange={(e) => setForm({ ...form, amount: e.target.value })}
-            />
-            <Input
-              type="number"
-              placeholder="Advance Amount"
-              value={form.advanceAmount}
-              onChange={(e) => setForm({ ...form, advanceAmount: e.target.value })}
-            />
-            <Input
-              type="number"
-              disabled
-              value={form.remainingAmount}
-              className="bg-gray-100"
-            />
-            <Input
-              type="date"
-              value={form.date}
-              onChange={(e) => setForm({ ...form, date: e.target.value })}
-            />
+
+          <div className="overflow-y-auto flex-1 space-y-3 mt-2 pr-2">
+            <Input placeholder="Customer Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <Input type="text" placeholder="Phone Number" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+            <Input type="number" placeholder="Advance Amount" value={form.advanceAmount} onChange={(e) => setForm({ ...form, advanceAmount: Number(e.target.value) })} />
+            <Input type="number" disabled value={form.remainingAmount} className="bg-gray-100" />
+            <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
 
             {/* Categories */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Select Categories</label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2 border rounded-md bg-white">
-                {[
-                  "Glass Printing","Card Printing","Banner Printing","Flag Printing",
-                  "Sticker Printing","Indoor Sticker Printing","Tatt Printing",
-                  "Roll-Up Stand Printing","3D Printing","Bill Book Printing"
-                ].map((cat) => (
-                  <label key={cat} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={form.buy.includes(cat)}
-                      onChange={() =>
-                        setForm((f) => ({
-                          ...f,
-                          buy: f.buy.includes(cat)
-                            ? f.buy.filter((c) => c !== cat)
-                            : [...f.buy, cat],
-                        }))
-                      }
-                    />
-                    <span className="text-sm">{cat}</span>
-                  </label>
-                ))}
+              <label className="text-sm font-medium">Select Categories, Qty & Unit Price</label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-2 border rounded-md bg-white max-h-64 overflow-y-auto">
+                {["Glass Printing", "Card Printing", "Banner Printing", "Flag Printing", "Sticker Printing", "Indoor Sticker Printing", "Tatt Printing", "Roll-Up Stand Printing", "3D Printing", "Bill Book Printing"].map(cat => {
+                  const selected = form.buy.find(b => b.category === cat);
+                  return (
+                    <div key={cat} className="flex flex-col border p-2 rounded-md">
+                      <label className="flex items-center gap-2">
+                        <input type="checkbox" checked={!!selected} onChange={() => {
+                          if (selected) setForm(f => ({ ...f, buy: f.buy.filter(b => b.category !== cat) }));
+                          else setForm(f => ({ ...f, buy: [...f.buy, { category: cat, qty: 1, unitPrice: 0 }] }));
+                        }} />
+                        <span className="text-sm">{cat}</span>
+                      </label>
+                      {selected && (
+                        <>
+                          <Input type="number" min="1" value={selected.qty} onChange={(e) => {
+                            const qty = Number(e.target.value);
+                            setForm(f => ({
+                              ...f,
+                              buy: f.buy.map(b => b.category === cat ? { ...b, qty } : b)
+                            }));
+                          }} className="mt-1" placeholder="Qty" />
+                          <Input type="number" min="0" value={selected.unitPrice} onChange={(e) => {
+                            const unitPrice = Number(e.target.value);
+                            setForm(f => ({
+                              ...f,
+                              buy: f.buy.map(b => b.category === cat ? { ...b, unitPrice } : b)
+                            }));
+                          }} className="mt-1" placeholder="Unit Price" />
+                          <div className="text-right text-sm mt-1">
+                            Total: {(selected.qty * (selected.unitPrice || 0)).toFixed(2)} AFN
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
 
-            {/* Only show dropdowns when editing */}
+            <Input type="number" disabled value={form.amount} className="bg-gray-100 mt-2" placeholder="Total Product Amount" />
+
+            {/* Partial Payments */}
+            <div className="space-y-2 mt-4">
+              <label className="text-sm font-medium">Partial Payments</label>
+              {form.partialPayments.map((p, idx) => (
+                <div key={idx} className="flex gap-2 items-center">
+                  <Input type="number" placeholder="Amount" value={p.amount} onChange={(e) => {
+                    const newAmount = Number(e.target.value);
+                    setForm(f => ({ ...f, partialPayments: f.partialPayments.map((pp, i) => i === idx ? { ...pp, amount: newAmount } : pp) }));
+                  }} />
+                  <Input type="date" value={p.date ? new Date(p.date).toISOString().split("T")[0] : ""} onChange={(e) => {
+                    const newDate = e.target.value;
+                    setForm(f => ({ ...f, partialPayments: f.partialPayments.map((pp, i) => i === idx ? { ...pp, date: newDate } : pp) }));
+                  }} />
+                  <Button variant="outline" onClick={() => setForm(f => ({ ...f, partialPayments: f.partialPayments.filter((_, i) => i !== idx) }))}>
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              <Button variant="outline" onClick={() => setForm(f => ({ ...f, partialPayments: [...f.partialPayments, { amount: 0, date: new Date() }] }))}>
+                + Add Partial Payment
+              </Button>
+            </div>
+
             {editProduct && (
               <>
-                <select
-                  className="p-2 border rounded w-full"
-                  value={form.workStatus}
-                  onChange={(e) => setForm({ ...form, workStatus: e.target.value })}
-                >
+                <select className="p-2 border rounded w-full" value={form.workStatus} onChange={(e) => setForm({ ...form, workStatus: e.target.value })}>
                   <option value="pending">Work Pending</option>
                   <option value="in-progress">In-Progress</option>
                   <option value="done">Work Done</option>
                 </select>
-
-                <select
-                  className="p-2 border rounded w-full"
-                  value={form.paymentStatus}
-                  onChange={(e) => setForm({ ...form, paymentStatus: e.target.value })}
-                >
+                <select className="p-2 border rounded w-full" value={form.paymentStatus} onChange={(e) => setForm({ ...form, paymentStatus: e.target.value })}>
                   <option value="unpaid">Unpaid</option>
-                  <option value="partial">Partial</option>
+                  <option value="partial">Partial Paid</option>
                   <option value="paid">Paid</option>
                 </select>
               </>
@@ -399,28 +425,28 @@ export default function ProductsPage() {
           </div>
 
           <DialogFooter className="mt-4 flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setOpenForm(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setOpenForm(false)} disabled={actionLoading}>
+              Cancel
+            </Button>
             <Button onClick={handleSave} disabled={actionLoading}>
-              {editProduct ? "Save Changes" : "Add Product"}
+              {editProduct ? "Update Product" : "Add Product"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Dialog */}
+      {/* Delete Confirmation */}
       <Dialog open={openDelete} onOpenChange={setOpenDelete}>
-        <DialogContent>
+        <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Confirm Delete</DialogTitle>
           </DialogHeader>
-          <p className="text-sm">Are you sure you want to delete this product?</p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpenDelete(false)}>Cancel</Button>
-            <Button
-              onClick={handleDelete}
-              className="bg-red-600 hover:bg-red-700 text-white"
-              disabled={actionLoading}
-            >
+          <div className="py-4 text-center">Are you sure you want to delete this product?</div>
+          <DialogFooter className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setOpenDelete(false)} disabled={actionLoading}>
+              Cancel
+            </Button>
+            <Button onClick={handleDelete} disabled={actionLoading}>
               Delete
             </Button>
           </DialogFooter>

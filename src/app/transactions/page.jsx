@@ -36,7 +36,6 @@ export default function TransactionsPage() {
       const normalized = (data || []).map(t => {
         const amount = Number(t.amount || 0);
         const advance = Number(t.advanceAmount || 0);
-        // Prefer explicit remainingAmount, otherwise derive from amount-advance
         const rawRemaining = (t.remainingAmount !== undefined && t.remainingAmount !== null)
           ? Number(t.remainingAmount)
           : Math.max(0, amount - advance);
@@ -51,8 +50,6 @@ export default function TransactionsPage() {
   };
 
   useEffect(() => { loadTransactions(); }, []);
-
-  
 
   const filtered = useMemo(() => {
     const now = new Date();
@@ -91,13 +88,14 @@ export default function TransactionsPage() {
   }, [filtered]);
 
   return (
-    <div className="flex flex-col lg:flex-row min-h-screen bg-gray-50 gap-10" >
-      {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex lg:flex-col w-64 shrink-0 border-r border-gray-200">
-        <Sidebar />
-      </aside>
+    <div className="flex flex-col lg:flex-row min-h-screen bg-gray-50 gap-10">
 
-      {/* Mobile Sidebar */}
+      {/* Always-mounted sidebar */}
+      <div className="w-full lg:w-64 shrink-0 border-r border-gray-200">
+        <Sidebar />
+      </div>
+
+      {/* Mobile Sidebar Drawer */}
       <div className={`fixed inset-0 z-40 lg:hidden transition-opacity ${openSidebar ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}>
         <div className="absolute inset-0 bg-black bg-opacity-30" onClick={()=>setOpenSidebar(false)} />
         <div className={`absolute top-0 left-0 h-full w-64 bg-white shadow transform transition-transform ${openSidebar ? "translate-x-0" : "-translate-x-full"}`}>
@@ -107,6 +105,7 @@ export default function TransactionsPage() {
 
       {/* Main Content */}
       <main className="flex-1 p-4 sm:p-6 space-y-6 overflow-x-hidden">
+
         {/* Header */}
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <div className="flex items-center gap-2">
@@ -126,8 +125,7 @@ export default function TransactionsPage() {
         {/* Filters */}
         <Card className="p-4 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-            {[
-              {label:"Month", key:"month", options:["all","thisMonth","lastMonth","thisYear"]},
+            {[{label:"Month", key:"month", options:["all","thisMonth","lastMonth","thisYear"]},
               {label:"Type", key:"type", options:["all","in","out"]},
               {label:"Category", key:"category", options:ALL_CATEGORIES},
               {label:"Person", key:"person", options:["all","Nazir","Shabir"]},
@@ -159,7 +157,7 @@ export default function TransactionsPage() {
           <CardHeader>
             <CardTitle>Transaction Records ({filtered.length})</CardTitle>
           </CardHeader>
-          <CardContent className="p-3 overflow-x-auto" >
+          <CardContent className="p-3 overflow-x-auto">
             <table className="min-w-[900px] w-full text-sm text-left border-collapse hidden sm:table">
               <thead className="bg-gray-100 sticky top-0 z-10">
                 <tr>
@@ -168,49 +166,24 @@ export default function TransactionsPage() {
               </thead>
               <tbody>
                 {filtered.length === 0 && <tr><td colSpan={9} className="p-4 text-center text-gray-500">No transactions found</td></tr>}
-                {filtered.map((t, idx)=>(<tr key={t._id} className={`${idx%2===0?"bg-white":"bg-gray-50"} hover:bg-gray-100`}>
-                  <td className="p-2 border">{t._id}</td>
-                  <td className="p-2 border">{t.date?.slice(0,10)}</td>
-                  <td className="p-2 border">{t.name}</td>
-                  <td className="p-2 border">{Array.isArray(t.buy) ? t.buy.join(", ") : t.buy}</td>
-                  <td className={`p-2 border text-right font-semibold ${t.type==="in"?"text-green-600":"text-red-600"}`}>{t.type==="in"?"+":"-"}{Number(t.amount || 0).toFixed(2)} AFN</td>
-                  <td className="p-2 border text-right">{t.remainingAmount>0?Number(t.remainingAmount).toFixed(2)+" AFN":"Paid"}</td>
-                  <td className="p-2 border text-center">{t.isPaid ? <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 text-xs rounded-full">Paid</span> : <span className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-50 text-yellow-700 text-xs rounded-full">Unpaid</span>}</td>
-                  <td className={`p-2 border text-center rounded-md ${t.type==="in"?"bg-green-50 text-green-600":"bg-red-50 text-red-600"}`}>{(t.type||"").toUpperCase()}</td>
-                  <td className="p-2 border flex justify-center gap-2">
-                    <button className="text-blue-600 hover:text-blue-800"><Edit2 className="w-4 h-4"/></button>
-                    <button className="text-red-600 hover:text-red-800"><Trash2 className="w-4 h-4"/></button>
-                  </td>
-                </tr>))}
+                {filtered.map((t, idx)=>(
+                  <tr key={t._id} className={`${idx%2===0?"bg-white":"bg-gray-50"} hover:bg-gray-100`}>
+                    <td className="p-2 border">{t._id}</td>
+                    <td className="p-2 border">{t.date?.slice(0,10)}</td>
+                    <td className="p-2 border">{t.name}</td>
+                    <td className="p-2 border">{Array.isArray(t.buy) ? t.buy.join(", ") : t.buy}</td>
+                    <td className={`p-2 border text-right font-semibold ${t.type==="in"?"text-green-600":"text-red-600"}`}>{t.type==="in"?"+":"-"}{Number(t.amount || 0).toFixed(2)} AFN</td>
+                    <td className="p-2 border text-right">{t.remainingAmount>0?Number(t.remainingAmount).toFixed(2)+" AFN":"Paid"}</td>
+                    <td className="p-2 border text-center">{t.isPaid ? <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 text-xs rounded-full">Paid</span> : <span className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-50 text-yellow-700 text-xs rounded-full">Unpaid</span>}</td>
+                    <td className={`p-2 border text-center rounded-md ${t.type==="in"?"bg-green-50 text-green-600":"bg-red-50 text-red-600"}`}>{(t.type||"").toUpperCase()}</td>
+                    <td className="p-2 border flex justify-center gap-2">
+                      <button className="text-blue-600 hover:text-blue-800"><Edit2 className="w-4 h-4"/></button>
+                      <button className="text-red-600 hover:text-red-800"><Trash2 className="w-4 h-4"/></button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
-
-            {/* Mobile list view */}
-            <div className="sm:hidden space-y-3">
-              {filtered.length === 0 && <div className="p-4 text-center text-gray-500">No transactions found</div>}
-              {filtered.map((t) => {
-                return (
-                  <div key={t._id} className="p-3 bg-white shadow-sm rounded-md">
-                    <div className="flex justify-between items-start gap-2">
-                      <div>
-                        <div className="text-sm font-semibold">{t.name}</div>
-                        <div className="text-xs text-gray-500">{new Date(t.date).toLocaleDateString()} • {Array.isArray(t.buy)?t.buy.join(", "):t.buy}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className={`font-semibold ${t.type==="in"?"text-green-600":"text-red-600"}`}>{t.type==="in"?"+":"-"}{Number(t.amount||0).toFixed(2)} AFN</div>
-                        <div className="text-xs mt-1">
-                              <span className={`px-2 py-1 rounded-full text-xs ${t.isPaid?"bg-green-50 text-green-700":"bg-yellow-50 text-yellow-700"}`}>{t.isPaid?"Paid":"Unpaid"}</span>
-                            <div className="mt-2 flex justify-end gap-2">
-                              <button className="text-blue-600 hover:text-blue-800"><Edit2 className="w-4 h-4"/></button>
-                              <button className="text-red-600 hover:text-red-800"><Trash2 className="w-4 h-4"/></button>
-                            </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           </CardContent>
         </Card>
 
